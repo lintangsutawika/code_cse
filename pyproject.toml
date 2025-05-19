@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=40.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "code_dagger"
+version = "0.0.1"
+authors = [
+    {name="Lintang Sutawika", email="lsutawik@andrew.cmu.edu"}
+]
+description = "Training code edit trajectories with DAgger"
+readme = "README.md"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.12"
+license = { "text" = "MIT" }
+dependencies = [
+    "datasets",
+    "transformers",
+    "tqdm",
+    "jsonlines",
+    "openai",
+]
+
+[tool.setuptools.packages.find]
+include = ["src/*"]
