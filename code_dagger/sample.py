@@ -18,11 +18,20 @@ def get_host_and_port(api_base):
     return host, port
 
 class Server:
-    def __init__(self, model_name, host="http://127.0.0.1", port=8000, backend="vllm"):
+    def __init__(
+        self,
+        model_name,
+        host="http://127.0.0.1", port=8000, backend="vllm",
+        max_model_len=4096,
+        pp_size=1, tp_size=1
+    ):
         self.model_name = model_name
         self.host = host
         self.port = port
         self.backend = backend
+        self.max_model_len = max_model_len
+        self.pp_size = pp_size
+        self.tp_size = tp_size
 
     def start(self):
 
@@ -37,12 +46,13 @@ class Server:
                 "python",
                 "-m",
                 "vllm.entrypoints.openai.api_server",
-                "--model",
-                self.model_name,
-                "--host",
-                str(self.host),
-                "--port",
-                str(self.port),
+                "--model", self.model_name,
+                "--host", str(self.host),
+                "--port", str(self.port),
+                "--max_model_len", str(self.max_model_len),
+                "--pipeline_parallel_size", str(self.pp_size),
+                "--tensor_parallel_size", str(self.tp_size),
+                "--distributed-executor-backend", "mp"
             ]
 
         self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -65,7 +75,7 @@ class Server:
 # 1. State 1 -> Full Code to Edits
 # 2. State 2 -> Full Code to Edits
 # 3. State End
-def get_trajectories(
+def sample_trajectories(
     policy_model,
     policy_api_base,
     policy_api_key,
