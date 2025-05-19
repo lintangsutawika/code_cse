@@ -3,8 +3,10 @@ import time
 import asyncio
 import subprocess
 
+from yeval.utils import import_modules
 from yeval.task import TASK_LIST, YevalTask
 from yeval.evaluation import EvaluateSystem
+
 
 def get_host_and_port(api_base):
     if "/v1/" in api_base:
@@ -72,11 +74,15 @@ def get_trajectories(
     expert_api_key,
     output_path,
     base_task,
+    task_path=None,
     backend="vllm",
     iteration=0,
     max_new_tokens=1024,
     n_samples=None,
 ):
+
+    if task_path is not None:
+        import_modules(task_path)
 
     POLICY = {
         "policy": {
