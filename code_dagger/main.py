@@ -1,16 +1,10 @@
 import os
+import sys
 import argparse
 
 from datasets import load_dataset
 
-from transformers.trainer import get_scheduler
-from openrlhf.datasets import SFTDataset
-from openrlhf.models import Actor
-from openrlhf.trainer import SFTTrainer
-from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
-
 from code_dagger.utils import get_diff, apply_patch
-from code_dagger.train import train_policy
 from code_dagger.sample import sample_trajectories
 
 def main(args):
@@ -24,7 +18,7 @@ def main(args):
     assert policy_api_base is not None, "Policy API base is required"
     assert expert_api_base is not None, "Expert API base is required"
 
-    for iteration in range(0, max_iterations):
+    for iteration in range(0, args.max_iterations):
 
         # Check if files exist so the iteration can be skipped
         # check if sampling is needed
@@ -60,6 +54,9 @@ def main(args):
             # get_diff(x1, x2)
             pass
 
+            if args.only_do_sampling:
+                sys.exit(0)
+
         command = [
             "deepspeed", "--master_port", "8291", "--module", "openrlhf.cli.train_sft",
             "--save_path", f"{args.output_train_path}/model/",
@@ -69,7 +66,7 @@ def main(args):
             "--logging_steps", "1",
             "--eval_steps", "-1",
             "--train_batch_size", "512",
-            "--micro_train_batch_size", "32",
+            "--micro_train_batch_size", f"{args.micro_train_batch_size}",
             "--pretrain", policy_model,
             "--save_hf_ckpt",
             "--bf16",
@@ -87,6 +84,7 @@ def main(args):
             "--gradient_checkpointing",
             "--adam_offload",
             "--packing_samples",
+            "--seed", f"{args.seed}",
             # "--use_ds_universal_ckpt",
             # "--use_liger_kernel",
         ]
@@ -99,6 +97,9 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+
+    # Control Parameters
+    parser.add_argument("--only_do_sampling", action="store_true", default=False, help="Skip training and only do sampling")
 
     # Sampling
     parser.add_argument("--base_expert_model", type=str, required=True, help="Path to the base expert model")
@@ -121,53 +122,22 @@ if __name__ == "__main__":
     # Training
     parser.add_argument("--train_dataset_path", type=str, default="sft training dataset path")
     parser.add_argument("--max_epochs", type=int, default=2)
-
-    # DeepSpeed
     parser.add_argument("--micro_train_batch_size", type=int, default=8, help="batch size per GPU")
-    parser.add_argument("--train_batch_size", type=int, default=128, help="Global training batch size")
-    parser.add_argument("--max_norm", type=float, default=1.0, help="Gradient clipping")
-    parser.add_argument("--gradient_checkpointing", action="store_true", default=False)
-    parser.add_argument("--deepcompile", action="store_true", default=False)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument(
-        "--full_determinism",
-        action="store_true",
-        default=False,
-        help="Enable reproducible behavior during distributed training",
-    )
-    parser.add_argument("--local_rank", type=int, default=-1, help="local_rank for deepspeed")
-    parser.add_argument("--zero_stage", type=int, default=2, help="DeepSpeed ZeRO stage")
-    parser.add_argument("--zpg", type=int, default=1, help="ZeRO++ max partition size")
-    parser.add_argument("--adam_offload", action="store_true", default=False, help="Offload Adam Optimizer")
-    parser.add_argument("--grad_accum_dtype", type=str, default=None, help="Adam grad accum data type")
-    parser.add_argument("--overlap_comm", action="store_true", default=False)
-    parser.add_argument("--gradient_checkpointing_use_reentrant", action="store_true", default=False)
-    parser.add_argument("--disable_fast_tokenizer", action="store_true", default=False)
-    parser.add_argument("--ds_tensor_parallel_size", type=int, default=1, help="DeepSpeed Tensor parallel size")
-
-    # custom dataset
-    parser.add_argument("--dataset", type=str, default=None, help="Path to the training dataset")
-    parser.add_argument("--dataset_probs", type=str, default=None, help="Sampling probabilities for training datasets")
-    parser.add_argument("--eval_dataset", type=str, default=None, help="Path to the evaluation dataset")
-    parser.add_argument("--dataset_split", type=str, default="train")
-    parser.add_argument("--eval_split", type=str, default="train")
     parser.add_argument("--max_samples", type=int, default=1000000, help="Maximum number of samples to use")
+    parser.add_argument("--eval_split", type=str, default="train")
     parser.add_argument("--train_split", type=str, default="train", help="train split of the HF dataset")
-    parser.add_argument("--multiturn", action="store_true", default=False, help="Use compacted multiturn dataset")
 
-    # wandb parameters
-    parser.add_argument("--use_wandb", type=str, default=None)
-    parser.add_argument("--wandb_org", type=str, default=None)
-    parser.add_argument("--wandb_group", type=str, default=None)
-    parser.add_argument("--wandb_project", type=str, default="openrlhf_train_sft")
-    parser.add_argument(
-        "--wandb_run_name",
-        type=str,
-        default="sft_%s" % datetime.now().strftime("%m%dT%H:%M"),
-    )
-
-    # TensorBoard parameters
-    parser.add_argument("--use_tensorboard", type=str, default=None, help="TensorBoard logging path")
+    # # wandb parameters
+    # parser.add_argument("--use_wandb", type=str, default=None)
+    # parser.add_argument("--wandb_org", type=str, default=None)
+    # parser.add_argument("--wandb_group", type=str, default=None)
+    # parser.add_argument("--wandb_project", type=str, default="openrlhf_train_sft")
+    # parser.add_argument(
+    #     "--wandb_run_name",
+    #     type=str,
+    #     default="sft_%s" % datetime.now().strftime("%m%dT%H:%M"),
+    # )
 
     # ModelScope parameters
     parser.add_argument("--use_ms", action="store_true", default=False)
