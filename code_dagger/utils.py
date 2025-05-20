@@ -1,3 +1,4 @@
+import whatthepatch
 from difflib import unified_diff
 
 def get_diff(state_1, state_2):
@@ -13,3 +14,12 @@ def get_diff(state_1, state_2):
         assert isinstance(state_2, list)
         s2 = state_2
     return list(unified_diff(s1, s2))[2:]
+
+def apply_patch(patch_code, base_code):
+    try:
+        patch = list(whatthepatch.parse_patch(patch_code))[0]
+        return whatthepatch.apply_diff(patch, base_code)
+    except:
+        return ""
+    updated_code = "\n".join(whatthepatch.apply_diff(patch, base_code))
+    return updated_code
