@@ -25,6 +25,7 @@ dependencies = [
     "jsonlines",
     "openai",
     "whatthepatch",
+    "openrlhf",
 ]
 
 [tool.setuptools.packages.find]
