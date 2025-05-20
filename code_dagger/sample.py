@@ -43,11 +43,8 @@ class Server:
             ]
         elif self.backend == "vllm":
             command = [
-                "python",
-                "-m",
-                "vllm.entrypoints.openai.api_server",
-                "--model", self.model_name,
-                "--host", str(self.host),
+                "vllm", "serve", self.model_name,
+                # "--host", str(self.host),
                 "--port", str(self.port),
                 "--max_model_len", str(self.max_model_len),
                 "--pipeline_parallel_size", str(self.pp_size),
@@ -55,9 +52,9 @@ class Server:
                 "--distributed-executor-backend", "mp"
             ]
 
-        self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.process = subprocess.Popen(command, shell=False, stdout=subprocess.DEVNULL)
         print(f"{self.backend} server {self.model_name}, started with PID: {self.process.pid}")
-        return True
+        return self.process
 
     def stop(self):
         if self.backend == "ollama":
@@ -87,7 +84,7 @@ def sample_trajectories(
     task_path=None,
     backend="vllm",
     iteration=0,
-    max_new_tokens=1024,
+    max_model_len=2048,
     n_samples=None,
 ):
 
@@ -115,16 +112,20 @@ def sample_trajectories(
 
     try:
         for pi_i in ["policy", "expert"]:
-            print(f"Running {pi_i} model")
+            print(f"Running {pi_i} model, {POLICY[pi_i]['model']}")
             host, port = get_host_and_port(POLICY[pi_i]['api_base'])
-            model_api = Server(model_name=POLICY[pi_i]['model'], host=host, port=port, backend=backend)
-            model_api.start()
+            model_api = Server(
+                model_name=POLICY[pi_i]['model'],
+                host=host, port=port, backend=backend,
+                max_model_len=max_model_len
+                )
+            process = model_api.start()
             evaluator = EvaluateSystem(
                 model=POLICY[pi_i]['model'],
                 api_base=POLICY[pi_i]['api_base'],
                 api_key=POLICY[pi_i]['api_key'],
                 chat_completion=False,
-                max_new_tokens=max_new_tokens,
+                max_new_tokens=max_model_len-512,
                 output_path=output_path,
                 )
 
@@ -143,7 +144,7 @@ def sample_trajectories(
                 else:
                     task_kwargs = {}
                 print(f"Running task: {task_name}")
-                task_run_name = f"{task_name}:{iteration}"
+                task_run_name = f"{iteration}:{task_name}"
                 policy_output_path = os.path.join(output_path, task_run_name)
                 task_object = TASK_LIST[task_name](
                     **task_kwargs,
@@ -164,22 +165,35 @@ def sample_trajectories(
         return True
     except Exception as e:
         print(f"Error: {e}")
+        if 'process' in locals():
+            process.terminate()
+            process.wait()
         return False
 
 if __name__ == "__main__":
-    policy_api_base = expert_api_base = "http://127.0.0.1:11434/v1/"
-    policy_api_key = expert_api_key = "ollama"
+    # policy_api_base = expert_api_base = "http://127.0.0.1:11434/v1/"
+    # policy_api_key = expert_api_key = "ollama"
+    # policy_model = "qwen3-4b-edit"
+    # expert_model = "qwen3-4b"
+    # backend = "ollama"
 
-    get_trajectories(
-        "qwen3-4b-edit",
+    policy_api_base = expert_api_base = "http://127.0.0.1:9000/v1/"
+    policy_api_key = expert_api_key = "vllm"
+    policy_model = "/data/user_data/lsutawik/edit-code/Qwen-Qwen3-4B/model/"
+    expert_model = "Qwen/Qwen3-4B"
+    backend = "vllm"
+
+    sample_trajectories(
+        policy_model,
         policy_api_base,
         policy_api_key,
-        "qwen3:4b",
+        expert_model,
         expert_api_base,
         expert_api_key,
         "output/",
         "mbpp",
-        backend="ollama",
+        task_path="tasks/",
+        backend=backend,
         iteration=0,
         max_new_tokens=1024,
         n_samples=4,
