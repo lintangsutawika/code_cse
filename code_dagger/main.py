@@ -1,11 +1,11 @@
 import os
 import sys
 import argparse
-
+import subprocess
 from datasets import load_dataset
 
-from code_dagger.utils import get_diff, apply_patch
-from code_dagger.sample import sample_trajectories
+from .utils import get_diff, apply_patch
+from .sample import sample_trajectories
 
 def main(args):
 
@@ -39,12 +39,12 @@ def main(args):
             base_task=args.base_task,
             backend=args.backend,
             iteration=iteration,
-            max_new_tokens=args.max_new_tokens,
-            n_samples=None,
+            max_model_len=args.max_model_len,
+            n_samples=args.n_samples,
         ):
 
-            policy_trajectory = load_dataset("json", data_files=os.path.join(output_path, f"{iteration}:{base_task}:policy", "output.jsonl"), split="train")
-            expert_trajectory = load_dataset("json", data_files=os.path.join(output_path, f"{iteration}:{base_task}:expert", "output.jsonl"), split="train")
+            policy_trajectory = load_dataset("json", data_files=os.path.join(args.output_trajectory_path, f"{iteration}:{args.base_task}:policy", "output.jsonl"), split="train")
+            expert_trajectory = load_dataset("json", data_files=os.path.join(args.output_trajectory_path, f"{iteration}:{args.base_task}:expert", "output.jsonl"), split="train")
             # Process the trajectories
             # idx = 0
             # base_code = get_code_snippet(d[idx]['step'][0]['full_input'])
@@ -54,6 +54,7 @@ def main(args):
             # get_diff(x1, x2)
             pass
 
+            print("args.only_do_sampling", args.only_do_sampling)
             if args.only_do_sampling:
                 sys.exit(0)
 
@@ -89,9 +90,13 @@ def main(args):
             # "--use_liger_kernel",
         ]
 
-        # process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        process = subprocess.Popen(command)
-        exit_code = process.wait()
+        try:
+            process = subprocess.Popen(command)
+            exit_code = process.wait()
+        except:
+            if "process" in locals():
+                process.terminate()
+                process.wait()
 
         policy_model = f"{args.output_train_path}/model/"
 
@@ -100,6 +105,7 @@ if __name__ == "__main__":
 
     # Control Parameters
     parser.add_argument("--only_do_sampling", action="store_true", default=False, help="Skip training and only do sampling")
+    parser.add_argument("--output_train_path", type=str, default="data/", help="Path to save the training output")
 
     # Sampling
     parser.add_argument("--base_expert_model", type=str, required=True, help="Path to the base expert model")
@@ -109,15 +115,15 @@ if __name__ == "__main__":
     parser.add_argument("--max_iterations", type=int, default=10, help="Maximum number of iterations")
     parser.add_argument("--beta", type=float, default=0.5, help="Beta parameter for blending")
     parser.add_argument("--backend", type=str, default="vllm", help="Backend to use")
-    parser.add_argument("--api_base", type=str, default=None, help="Base URL for the API")
-    parser.add_argument("--api_key", type=str, default=None, help="API key for authentication")
+    parser.add_argument("--api_base", type=str, default="http://127.0.0.1:9000/v1/", help="Base URL for the API")
+    parser.add_argument("--api_key", type=str, default="token-dummy", help="API key for authentication")
     parser.add_argument("--task_path", type=str, default=None, help="Path to the task file")
     parser.add_argument("--n_samples", type=int, default=None, help="Number of samples to generate")
     parser.add_argument("--policy_api_base", type=str, default=None, help="Base URL for the policy API")
     parser.add_argument("--policy_api_key", type=str, default=None, help="API key for the policy API")
     parser.add_argument("--expert_api_base", type=str, default=None, help="Base URL for the expert API")
     parser.add_argument("--expert_api_key", type=str, default=None, help="API key for the expert API")
-    parser.add_argument("--max_new_tokens", type=int, default=1024, help="Max new tokens to generate")
+    parser.add_argument("--max_model_len", type=int, default=2048, help="Max new tokens to generate")
 
     # Training
     parser.add_argument("--train_dataset_path", type=str, default="sft training dataset path")
