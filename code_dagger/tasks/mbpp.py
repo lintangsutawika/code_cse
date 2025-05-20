@@ -139,7 +139,7 @@ def unroll_trajectories(dataset):
 @register_task("expert_evaluation")
 class ExpertEvaluation(YevalTask):
     data_path="json"
-    input_text=lambda x: "Complete/Fix the code snippet based on the following command\n"+x["input"]+"/no_think"
+    input_text=lambda x: "Complete/Fix the code snippet based on the following command\n"+x["input"].split("<|diff|>")[0].strip()+"/no_think"
     output_text=lambda x: x["output"]
     # sampling_args={"n": 10}
     test_split="train"
