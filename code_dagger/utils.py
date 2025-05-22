@@ -23,3 +23,15 @@ def apply_patch(patch_code, base_code):
         return ""
     updated_code = "\n".join(whatthepatch.apply_diff(patch, base_code))
     return updated_code
+
+def get_code_snippet(x):
+    code_end = "\n```"
+    for code_start in ["```python\n", "```\n"]:
+        if code_start in x:
+            start = x.rfind(code_start)+len(code_start)
+            if code_end in x[start:]:
+                end = x.find("\n```", start)
+            else:
+                return ""
+            return x[start:end].strip()
+    return ""

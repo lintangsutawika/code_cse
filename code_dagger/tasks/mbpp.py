@@ -1,18 +1,14 @@
 import sys
 import subprocess
-import whatthepatch
+import numpy as np
 
 from yeval.task import register_task, YevalTask
 from yeval.metrics.pass_at_k import classical_pass_at_k, openai_pass_at_k
 
-def apply_patch(patch_code, base_code):
-    try:
-        patch = list(whatthepatch.parse_patch(patch_code))[0]
-        return whatthepatch.apply_diff(patch, base_code)
-    except:
-        return ""
-    updated_code = "\n".join(whatthepatch.apply_diff(patch, base_code))
-    return updated_code
+from code_dagger.utils import (
+    apply_patch,
+    get_code_snippet,
+    )
 
 def postprocess_patch(x, state):
     x = "@@" + x
@@ -59,11 +55,6 @@ def pass_at_1(completion, test):
     except Exception as e:
         return 0
 
-def get_code_snippet(x):
-    start = x.find("```python") + len("```python")
-    end = x.find("```", start)
-    return x[start:end].strip()
-
 @register_task("mbpp:policy")
 class MBPPStep(YevalTask):
     data_path="evalplus/mbppplus"
@@ -86,16 +77,27 @@ class MBPPStep(YevalTask):
 class MBPPStep(YevalTask):
     data_path="evalplus/mbppplus"
     input_text=lambda x: f"{x['prompt']}\n```\n{x["code"].split(":")[0].strip()+":"}\n```"+"/no_think"
-    # sampling_args={"n": 10}
+    sampling_args={
+        "n": 10,
+        "temperature": 0.7,
+        }
     output_text=lambda x: x["test_list"]
     test_split="test"
-    evaluation={"pass@1": pass_at_1}
+    sample_agg_fn={
+        "pass@1": np.mean,
+        "idx_pass@1": lambda x: x,
+        # "pass@10": lambda x: 1 if sum(x)>0 else 0,
+        }
+    evaluation={
+        "pass@1": pass_at_1,
+        "idx_pass@1": pass_at_1,
+        # "pass@10": pass_at_1,
+        }
     # eval_at_k=True
     # evaluation={
     #     "pass@1": partial(openai_pass_at_k, k=1, metric_fn=pass_at_1),
     #     "pass@10": partial(openai_pass_at_k, k=10, metric_fn=pass_at_1)
     # }
-    # preprocessor=preprocess_patch
     postprocessor=get_code_snippet
 
 def unroll_trajectories(dataset):
@@ -141,9 +143,19 @@ class ExpertEvaluation(YevalTask):
     data_path="json"
     input_text=lambda x: "Complete/Fix the code snippet based on the following command\n"+x["input"].split("<|diff|>")[0].strip()+"/no_think"
     output_text=lambda x: x["output"]
-    # sampling_args={"n": 10}
+    sampling_args={
+        "n": 10,
+        "temperature": 0.7,
+        }
+    sample_agg_fn={
+        "pass@1": np.mean,
+        "idx_pass@1": lambda x: x,
+        }
     test_split="train"
-    evaluation={"pass@1": pass_at_1}
+    evaluation={
+        "pass@1": pass_at_1,
+        "idx_pass@1": pass_at_1,
+        }
     preprocessing=unroll_trajectories
     postprocessor=get_code_snippet
     aux_keys=[
