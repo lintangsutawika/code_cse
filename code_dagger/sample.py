@@ -56,14 +56,17 @@ class Server:
         print(f"{self.backend} server {self.model_name}, started with PID: {self.process.pid}")
         return self.process
 
-    def stop(self):
+    def stop(self, process=None):
+        if process is None:
+            process = self.process
+
         if self.backend == "ollama":
             command = ["ollama", "stop", self.model_name]
-            self.stop_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.stop_process.wait()
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            process.wait()
         elif self.backend == "vllm":
-            self.process.terminate()
-            self.process.wait()
+            process.terminate()
+            process.wait()
         print(f"{self.backend} server terminated.")
 
 # TODO: Mechanism to adjust compute budget for expert model
@@ -86,10 +89,21 @@ def sample_trajectories(
     iteration=0,
     max_model_len=2048,
     n_samples=None,
-):
+    policy_only=False,
+    expert_only=False,
+    no_policy=False,
+    no_expert=False,
+    ):
 
     if task_path is not None:
         import_modules(task_path)
+
+    if no_policy:
+        pi_list = ["expert"]
+    elif no_expert:
+        pi_list = ["policy"]
+    else:
+        pi_list = ["policy", "expert"]
 
     POLICY = {
         "policy": {
@@ -111,15 +125,17 @@ def sample_trajectories(
     # pi_i = beta_i * pi_star + (1 - beta_i) * pi_hat_i
 
     try:
-        for pi_i in ["policy", "expert"]:
+        for pi_i in pi_list:
             print(f"Running {pi_i} model, {POLICY[pi_i]['model']}")
-            host, port = get_host_and_port(POLICY[pi_i]['api_base'])
-            model_api = Server(
-                model_name=POLICY[pi_i]['model'],
-                host=host, port=port, backend=backend,
-                max_model_len=max_model_len
-                )
-            process = model_api.start()
+            if (pi_i == "policy" and not no_policy) or (pi_i == "expert" and not no_expert):
+                host, port = get_host_and_port(POLICY[pi_i]['api_base'])
+                model_api = Server(
+                    model_name=POLICY[pi_i]['model'],
+                    host=host, port=port, backend=backend,
+                    max_model_len=max_model_len
+                    )
+                process = model_api.start()
+
             evaluator = EvaluateSystem(
                 model=POLICY[pi_i]['model'],
                 api_base=POLICY[pi_i]['api_base'],
@@ -159,8 +175,9 @@ def sample_trajectories(
                     )
                 )
 
-            model_api.stop()
-            time.sleep(10)
+            if (pi_i == "policy" and not no_policy) or (pi_i == "expert" and not no_expert):
+                model_api.stop(process)
+                time.sleep(10)
 
         return True
     except Exception as e:
