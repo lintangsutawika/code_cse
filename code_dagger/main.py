@@ -1,19 +1,21 @@
 import os
 import sys
 import argparse
+import jsonlines
 import subprocess
 from datasets import load_dataset
 
 from .utils import get_diff, apply_patch
 from .sample import sample_trajectories
+from .aggregate import aggregate_dataset
 
 def main(args):
 
-    policy_api_base = args.api_base if args.api_base is not None else args.policy_api_base
-    policy_api_key = args.api_key if args.api_key is not None else args.policy_api_key
+    policy_api_base = args.policy_api_base or args.api_base
+    policy_api_key = args.policy_api_key or args.api_key
 
-    expert_api_base = args.api_base if args.api_base is not None else args.expert_api_base
-    expert_api_key = args.api_key if args.api_key is not None else args.expert_api_key
+    expert_api_base = args.expert_api_base or args.api_base
+    expert_api_key = args.expert_api_key or args.api_key
 
     assert policy_api_base is not None, "Policy API base is required"
     assert expert_api_base is not None, "Expert API base is required"
@@ -41,22 +43,22 @@ def main(args):
             iteration=iteration,
             max_model_len=args.max_model_len,
             n_samples=args.n_samples,
+            no_policy=args.no_policy,
+            no_expert=args.no_expert,
         ):
 
-            policy_trajectory = load_dataset("json", data_files=os.path.join(args.output_trajectory_path, f"{iteration}:{args.base_task}:policy", "output.jsonl"), split="train")
-            expert_trajectory = load_dataset("json", data_files=os.path.join(args.output_trajectory_path, f"{iteration}:{args.base_task}:expert", "output.jsonl"), split="train")
-            # Process the trajectories
-            # idx = 0
-            # base_code = get_code_snippet(d[idx]['step'][0]['full_input'])
-            # predicted = d[idx]['step'][0]['aux']['predicted']
-            # x1 = apply_patch(predicted, base_code)
-            # x2 = d[idx]['answer'][0].split("\n")
-            # get_diff(x1, x2)
-            pass
+            agg_trajectory = aggregate_dataset(
+                iteration,
+                args.base_task,
+                args.output_trajectory_path,
+            )
 
-            print("args.only_do_sampling", args.only_do_sampling)
-            if args.only_do_sampling:
-                sys.exit(0)
+            sft_data_path = f"{args.output_trajectory_path}/{iteration}:sft_dataset/"
+            with jsonlines.open(os.path.join(sft_data_path, "output.jsonl"), mode="w") as writer:
+                writer.write_all(agg_trajectory)
+
+            if args.only_do_sampling or args.no_expert or args.no_policy:
+                sys.exit()
 
         command = [
             "deepspeed", "--master_port", "8291", "--module", "openrlhf.cli.train_sft",
@@ -77,7 +79,7 @@ def main(args):
             "--zero_stage", "3",
             "--learning_rate", "1e-5",
             "--lr_warmup_ratio", "0.001",
-            "--dataset", f"json@{args.train_dataset_path}/",
+            "--dataset", f"json@{args.train_dataset_path or sft_data_path}/",
             "--input_key", "input",
             "--output_key", "output",
             "--flash_attn",
@@ -106,6 +108,8 @@ if __name__ == "__main__":
     # Control Parameters
     parser.add_argument("--only_do_sampling", action="store_true", default=False, help="Skip training and only do sampling")
     parser.add_argument("--output_train_path", type=str, default="data/", help="Path to save the training output")
+    parser.add_argument("--no_policy", action="store_true", default=False, help="don't sample from policy")
+    parser.add_argument("--no_expert", action="store_true", default=False, help="don't sample from expert")
 
     # Sampling
     parser.add_argument("--base_expert_model", type=str, required=True, help="Path to the base expert model")
