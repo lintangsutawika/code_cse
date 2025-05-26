@@ -145,7 +145,7 @@ class ExpertEvaluation(YevalTask):
     output_text=lambda x: x["output"]
     sampling_args={
         "n": 10,
-        "temperature": 0.7,
+        "temperature": 1.0,
         }
     sample_agg_fn={
         "pass@1": np.mean,

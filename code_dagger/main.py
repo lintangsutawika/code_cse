@@ -24,41 +24,62 @@ def main(args):
 
         # Check if files exist so the iteration can be skipped
         # check if sampling is needed
-        do_sampling = True
-
         if iteration == 0:
             policy_model = args.base_policy_model
 
-        if do_sampling and sample_trajectories(
-            policy_model=policy_model,
-            expert_model=args.base_expert_model,
-            task_path=args.task_path,
-            policy_api_base=policy_api_base,
-            policy_api_key=policy_api_key,
-            expert_api_base=expert_api_base,
-            expert_api_key=expert_api_key,
-            output_path=args.output_trajectory_path,
-            base_task=args.base_task,
-            backend=args.backend,
-            iteration=iteration,
-            max_model_len=args.max_model_len,
-            n_samples=args.n_samples,
-            no_policy=args.no_policy,
-            no_expert=args.no_expert,
-        ):
+        POLICY = {
+            "policy": {
+                "model": policy_model,
+                "api_base": policy_api_base,
+                "api_key": policy_api_key,
+            },
+            "expert": {
+                "model": expert_model,
+                "api_base": expert_api_base,
+                "api_key": expert_api_key,
+            },
+        }
 
-            agg_trajectory = aggregate_dataset(
-                iteration,
-                args.base_task,
-                args.output_trajectory_path,
-            )
+        for pi_i in ["policy", "expert"]:
+            if pi_i == "policy" and no_policy:
+                continue
+            elif pi_i == "expert" and no_expert:
+                continue
+            host, port = get_host_and_port(Policy[pi_i]['api_base'])
+            model_api = Server(
+                model_name=POLICY[pi_i]['model'],
+                host=host, port=port, backend=args.backend,
+                pp_size=args.pp_size, tp_size=args.tp_size,
+                max_model_len=args.max_model_len
+                )
+            process = model_api.start()
 
-            sft_data_path = f"{args.output_trajectory_path}/{iteration}:sft_dataset/"
-            with jsonlines.open(os.path.join(sft_data_path, "output.jsonl"), mode="w") as writer:
-                writer.write_all(agg_trajectory)
+            task_list = []
 
-            if args.only_do_sampling or args.no_expert or args.no_policy:
-                sys.exit()
+            if not args.no_sampling and sample_trajectories(
+                model=policy_model,
+                api_base=policy_api_base,
+                api_key=policy_api_key,
+                task_path=args.task_path,
+                output_path=args.output_trajectory_path,
+                base_task=args.base_task,
+                iteration=iteration,
+                n_samples=args.n_samples,
+            ):
+
+        agg_trajectory = aggregate_dataset(
+            iteration,
+            args.base_task,
+            args.output_trajectory_path,
+        )
+
+        sft_data_path = os.path.join(args.output_trajectory_path, f"{iteration}:sft_dataset/")
+        os.makedirs(sft_data_path, exist_ok=True)
+        with jsonlines.open(os.path.join(sft_data_path, "output.jsonl"), mode="w") as writer:
+            writer.write_all(agg_trajectory)
+
+        if args.only_do_sampling or args.no_expert or args.no_policy:
+            sys.exit()
 
         command = [
             "deepspeed", "--master_port", "8291", "--module", "openrlhf.cli.train_sft",
@@ -70,14 +91,14 @@ def main(args):
             "--eval_steps", "-1",
             "--train_batch_size", "512",
             "--micro_train_batch_size", f"{args.micro_train_batch_size}",
-            "--pretrain", policy_model,
+            "--pretrain", f"{policy_model}",
             "--save_hf_ckpt",
             "--bf16",
             "--max_epochs", f"{args.max_epochs}",
             "--max_samples", "128000",
             "--max_len", "1024",
             "--zero_stage", "3",
-            "--learning_rate", "1e-5",
+            "--learning_rate", "1e-4",
             "--lr_warmup_ratio", "0.001",
             "--dataset", f"json@{args.train_dataset_path or sft_data_path}/",
             "--input_key", "input",
@@ -110,6 +131,8 @@ if __name__ == "__main__":
     parser.add_argument("--output_train_path", type=str, default="data/", help="Path to save the training output")
     parser.add_argument("--no_policy", action="store_true", default=False, help="don't sample from policy")
     parser.add_argument("--no_expert", action="store_true", default=False, help="don't sample from expert")
+    parser.add_argument("--no_sampling", action="store_true", default=False, help="don't sample at all")
+    parser.add_argument("--max_rps", type=int, default=10, help="Max requests per second")
 
     # Sampling
     parser.add_argument("--base_expert_model", type=str, required=True, help="Path to the base expert model")
@@ -128,9 +151,11 @@ if __name__ == "__main__":
     parser.add_argument("--expert_api_base", type=str, default=None, help="Base URL for the expert API")
     parser.add_argument("--expert_api_key", type=str, default=None, help="API key for the expert API")
     parser.add_argument("--max_model_len", type=int, default=2048, help="Max new tokens to generate")
+    parser.add_argument("--pp_size", type=int, default=1, help="Number of samples to generate in parallel")
+    parser.add_argument("--tp_size", type=int, default=1, help="Number of samples to generate in parallel")
 
     # Training
-    parser.add_argument("--train_dataset_path", type=str, default="sft training dataset path")
+    parser.add_argument("--train_dataset_path", type=str, default=None, help="sft training dataset path")
     parser.add_argument("--max_epochs", type=int, default=2)
     parser.add_argument("--micro_train_batch_size", type=int, default=8, help="batch size per GPU")
     parser.add_argument("--seed", type=int, default=42)

@@ -40,7 +40,7 @@ def aggregate_dataset(
             if traj_name == "policy_trajectory":
                 query = query.split("<|diff|>")[0].strip()
                 metric = [step['eval']["pass@1"]]
-                code_source = [["@@"+code for code in step["completion"]]]
+                code_source = ["@@"+code for code in step["completion"]]
             else:
                 query = query.split("/no_think")[0]
                 query = query.replace("Complete/Fix the code snippet based on the following command\n", "").strip()
@@ -69,7 +69,7 @@ def aggregate_dataset(
                     else:
                         previous_code = code_text
 
-                    base_code = str(starting_code)
+                    base_code = starting_code
                     if traj_name in ["expert_trajectory", "corrected_trajectory"]:
                         edit_path = lintseq_backward_sampling_pythonic(
                             code_text,
@@ -94,7 +94,7 @@ def aggregate_dataset(
                         for idx, seq in enumerate(diff_seq):
                             if (traj_name == "corrected_trajectory") and (idx == 0):
                                 correct_patch = code_text.split("\n")
-                                patch_seq = get_diff(base_code, correct_patch)
+                                patch_seq = "\n".join([line.strip() for line in get_diff(base_code, correct_patch)])
                             else:
                                 patch_seq = seq
 

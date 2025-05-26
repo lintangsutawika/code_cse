@@ -7,67 +7,7 @@ from yeval.utils import import_modules
 from yeval.task import TASK_LIST, YevalTask
 from yeval.evaluation import EvaluateSystem
 
-
-def get_host_and_port(api_base):
-    if "/v1/" in api_base:
-        api_base = api_base.split("/v1/")[0]
-    elif api_base.endswith("/"):
-        api_base = api_base[:-1]
-    *host, port = api_base.split(":")
-    host = ":".join(host)
-    return host, port
-
-class Server:
-    def __init__(
-        self,
-        model_name,
-        host="http://127.0.0.1", port=8000, backend="vllm",
-        max_model_len=4096,
-        pp_size=1, tp_size=1
-    ):
-        self.model_name = model_name
-        self.host = host
-        self.port = port
-        self.backend = backend
-        self.max_model_len = max_model_len
-        self.pp_size = pp_size
-        self.tp_size = tp_size
-
-    def start(self):
-
-        if self.backend == "ollama":
-            command = [
-                "ollama",
-                "run",
-                self.model_name,
-            ]
-        elif self.backend == "vllm":
-            command = [
-                "vllm", "serve", self.model_name,
-                # "--host", str(self.host),
-                "--port", str(self.port),
-                "--max_model_len", str(self.max_model_len),
-                "--pipeline_parallel_size", str(self.pp_size),
-                "--tensor_parallel_size", str(self.tp_size),
-                "--distributed-executor-backend", "mp"
-            ]
-
-        self.process = subprocess.Popen(command, shell=False, stdout=subprocess.DEVNULL)
-        print(f"{self.backend} server {self.model_name}, started with PID: {self.process.pid}")
-        return self.process
-
-    def stop(self, process=None):
-        if process is None:
-            process = self.process
-
-        if self.backend == "ollama":
-            command = ["ollama", "stop", self.model_name]
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            process.wait()
-        elif self.backend == "vllm":
-            process.terminate()
-            process.wait()
-        print(f"{self.backend} server terminated.")
+from yeval.model import Server
 
 # TODO: Mechanism to adjust compute budget for expert model
 # Budget 6ND
@@ -93,30 +33,14 @@ def sample_trajectories(
     expert_only=False,
     no_policy=False,
     no_expert=False,
+    pp_size=1,
+    tp_size=1,
+    max_rps=10,
     ):
 
     if task_path is not None:
         import_modules(task_path)
 
-    if no_policy:
-        pi_list = ["expert"]
-    elif no_expert:
-        pi_list = ["policy"]
-    else:
-        pi_list = ["policy", "expert"]
-
-    POLICY = {
-        "policy": {
-            "model": policy_model,
-            "api_base": policy_api_base,
-            "api_key": policy_api_key,
-        },
-        "expert": {
-            "model": expert_model,
-            "api_base": expert_api_base,
-            "api_key": expert_api_key,
-        },
-    }
     # inference with policy
     # inference with expert
     # a. inference on task
@@ -127,14 +51,15 @@ def sample_trajectories(
     try:
         for pi_i in pi_list:
             print(f"Running {pi_i} model, {POLICY[pi_i]['model']}")
-            if (pi_i == "policy" and not no_policy) or (pi_i == "expert" and not no_expert):
-                host, port = get_host_and_port(POLICY[pi_i]['api_base'])
-                model_api = Server(
-                    model_name=POLICY[pi_i]['model'],
-                    host=host, port=port, backend=backend,
-                    max_model_len=max_model_len
-                    )
-                process = model_api.start()
+            model_api = Server(
+                model_name=POLICY[pi_i]['model'],
+                host=POLICY[pi_i]['api_base'],
+                backend=backend,
+                max_model_len=max_model_len,
+                pp_size=pp_size,
+                tp_size=tp_size,
+            )
+            process = model_api.start()
 
             evaluator = EvaluateSystem(
                 model=POLICY[pi_i]['model'],
@@ -143,6 +68,7 @@ def sample_trajectories(
                 chat_completion=False,
                 max_new_tokens=max_model_len-512,
                 output_path=output_path,
+                max_rps=max_rps,
                 )
 
             if pi_i == "policy":
@@ -169,7 +95,6 @@ def sample_trajectories(
                 asyncio.run(
                     evaluator.run(
                         task_object,
-                        # sampling_args=simple_parse_args_string(args.sample_args) if args.sample_args else None,
                         run_name=task_run_name,
                         n_samples=n_samples
                     )
