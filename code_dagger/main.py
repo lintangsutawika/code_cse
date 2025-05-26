@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import argparse
 import jsonlines
 import subprocess
@@ -9,16 +10,9 @@ from .utils import get_diff, apply_patch
 from .sample import sample_trajectories
 from .aggregate import aggregate_dataset
 
+from yeval.model import Server, get_host_and_port
+
 def main(args):
-
-    policy_api_base = args.policy_api_base or args.api_base
-    policy_api_key = args.policy_api_key or args.api_key
-
-    expert_api_base = args.expert_api_base or args.api_base
-    expert_api_key = args.expert_api_key or args.api_key
-
-    assert policy_api_base is not None, "Policy API base is required"
-    assert expert_api_base is not None, "Expert API base is required"
 
     for iteration in range(0, args.max_iterations):
 
@@ -27,63 +21,104 @@ def main(args):
         if iteration == 0:
             policy_model = args.base_policy_model
 
-        POLICY = {
-            "policy": {
-                "model": policy_model,
-                "api_base": policy_api_base,
-                "api_key": policy_api_key,
-            },
-            "expert": {
-                "model": expert_model,
-                "api_base": expert_api_base,
-                "api_key": expert_api_key,
-            },
-        }
+        if not args.no_sampling:
 
-        for pi_i in ["policy", "expert"]:
-            if pi_i == "policy" and no_policy:
-                continue
-            elif pi_i == "expert" and no_expert:
-                continue
-            host, port = get_host_and_port(Policy[pi_i]['api_base'])
-            model_api = Server(
-                model_name=POLICY[pi_i]['model'],
-                host=host, port=port, backend=args.backend,
-                pp_size=args.pp_size, tp_size=args.tp_size,
-                max_model_len=args.max_model_len
+            base_task = args.base_task
+
+            policy_api_base = args.policy_api_base or args.api_base
+            policy_api_key = args.policy_api_key or args.api_key
+
+            expert_api_base = args.expert_api_base or args.api_base
+            expert_api_key = args.expert_api_key or args.api_key
+
+            assert policy_api_base is not None, "Policy API base is required"
+            assert expert_api_base is not None, "Expert API base is required"
+
+            PI = {
+                "policy": {
+                    "model": policy_model,
+                    "api_base": policy_api_base,
+                    "api_key": policy_api_key,
+                    "chat_completion": False,
+                    "tasks": {
+                        f"{base_task}:policy": {}
+                    }
+                },
+                "expert": {
+                    "model": args.base_expert_model,
+                    "api_base": expert_api_base,
+                    "api_key": expert_api_key,
+                    "chat_completion": True,
+                    "tasks": {
+                        f"{base_task}:expert": {},
+                        "expert_evaluation": {
+                            "data_kwargs": {
+                                "data_files":  os.path.join(
+                                                    args.output_trajectory_path,
+                                                    f"{iteration}:{base_task}:policy",
+                                                    "output.jsonl"
+                                                    )
+                            }
+                        }
+                    }
+                },
+            }
+
+            # inference with policy
+            # inference with expert
+            # a. inference on task
+            # b. inference on visited states by policy
+            # Sample based on 
+            # pi_i = beta_i * pi_star + (1 - beta_i) * pi_hat_i
+
+            for pi_i in ["policy", "expert"]:
+                if pi_i == "policy" and args.no_policy:
+                    continue
+                elif pi_i == "expert" and args.no_expert:
+                    continue
+
+                if args.serve:
+                    host, port = get_host_and_port(PI[pi_i]['api_base'])
+                    policy_api = Server(
+                        model_name=PI[pi_i]["model"],
+                        host=host, port=port, backend=args.backend,
+                        pp_size=args.pp_size, tp_size=args.tp_size,
+                        max_model_len=args.max_model_len
+                        )
+                    process = policy_api.start()
+
+                sample_trajectories(
+                    model=PI[pi_i]["model"],
+                    api_base=PI[pi_i]['api_base'],
+                    api_key=PI[pi_i]['api_key'],
+                    task_dict=PI[pi_i]["tasks"],
+                    chat_completion=PI[pi_i]["chat_completion"],
+                    output_path=args.output_trajectory_path,
+                    task_path=args.task_path,
+                    iteration=iteration,
+                    n_samples=args.n_samples,
                 )
-            process = model_api.start()
 
-            task_list = []
+                if args.serve:
+                    policy_api.stop(process)
 
-            if not args.no_sampling and sample_trajectories(
-                model=policy_model,
-                api_base=policy_api_base,
-                api_key=policy_api_key,
-                task_path=args.task_path,
-                output_path=args.output_trajectory_path,
-                base_task=args.base_task,
-                iteration=iteration,
-                n_samples=args.n_samples,
-            ):
+            agg_trajectory = aggregate_dataset(
+                iteration,
+                args.base_task,
+                args.output_trajectory_path,
+            )
 
-        agg_trajectory = aggregate_dataset(
-            iteration,
-            args.base_task,
-            args.output_trajectory_path,
-        )
+            sft_data_path = os.path.join(args.output_trajectory_path, f"{iteration}:sft_dataset/")
+            os.makedirs(sft_data_path, exist_ok=True)
+            with jsonlines.open(os.path.join(sft_data_path, "output.jsonl"), mode="w") as writer:
+                writer.write_all(agg_trajectory)
 
-        sft_data_path = os.path.join(args.output_trajectory_path, f"{iteration}:sft_dataset/")
-        os.makedirs(sft_data_path, exist_ok=True)
-        with jsonlines.open(os.path.join(sft_data_path, "output.jsonl"), mode="w") as writer:
-            writer.write_all(agg_trajectory)
-
-        if args.only_do_sampling or args.no_expert or args.no_policy:
-            sys.exit()
+            if args.only_do_sampling or args.no_expert or args.no_policy:
+                sys.exit()
 
         command = [
             "deepspeed", "--master_port", "8291", "--module", "openrlhf.cli.train_sft",
-            "--save_path", f"{args.output_train_path}/model/",
+            "--save_path", f"{args.output_train_path}/{iteration}:model/",
             "--ckpt_path", f"{args.output_train_path}/ckpt/",
             "--load_checkpoint",
             "--save_steps", "100",
@@ -132,6 +167,7 @@ if __name__ == "__main__":
     parser.add_argument("--no_policy", action="store_true", default=False, help="don't sample from policy")
     parser.add_argument("--no_expert", action="store_true", default=False, help="don't sample from expert")
     parser.add_argument("--no_sampling", action="store_true", default=False, help="don't sample at all")
+    parser.add_argument("--serve", action="store_true", default=False, help="Serve models")
     parser.add_argument("--max_rps", type=int, default=10, help="Max requests per second")
 
     # Sampling
