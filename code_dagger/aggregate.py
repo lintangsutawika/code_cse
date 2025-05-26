@@ -42,7 +42,7 @@ def aggregate_dataset(
                 metric = [step['eval']["pass@1"]]
                 code_source = ["@@"+code for code in step["completion"]]
             else:
-                query = query.split("/no_think")[0]
+                query = query[0]["content"].split("/no_think")[0]
                 query = query.replace("Complete/Fix the code snippet based on the following command\n", "").strip()
                 metric = step['eval']["idx_pass@1"]
                 code_source = step['output']
