@@ -24,6 +24,13 @@ def apply_patch(patch_code, base_code):
     updated_code = "\n".join(whatthepatch.apply_diff(patch, base_code))
     return updated_code
 
+def convert_to_patch(code_snippet):
+    if isinstance(code_snippet, str):
+        code_snippet = [code_snippet.strip()]
+    code_length = len(code_snippet)
+    code_patch = "\n".join([f"@@ -0,0 +1,{code_length} @@"]+[f"+{line}" for line in code_snippet])
+    return code_patch
+
 def get_code_snippet(x):
     code_end = "\n```"
     for code_start in ["```python\n", "```\n"]:
