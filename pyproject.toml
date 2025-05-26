@@ -32,6 +32,7 @@ dependencies = [
     "openai",
     "whatthepatch",
     "openrlhf@git+https://github.com/OpenRLHF/OpenRLHF.git",
+    "vllm",
 ]
 
 [tool.setuptools.packages.find]
