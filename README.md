@@ -3,6 +3,7 @@
 ## Installation
 
 ```
+git clone https://github.com/lintangsutawika/code_cse.git
 cd code_cse/
 pip install -e .
 ```
