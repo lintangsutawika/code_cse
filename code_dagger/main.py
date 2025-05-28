@@ -64,12 +64,8 @@ def main(args):
                 },
             }
 
-            # inference with policy
-            # inference with expert
-            # a. inference on task
-            # b. inference on visited states by policy
-            # Sample based on 
-            # pi_i = beta_i * pi_star + (1 - beta_i) * pi_hat_i
+            # TODO: pi_i = beta_i * pi_star + (1 - beta_i) * pi_hat_i
+            # n_samples based on this.
 
             for pi_i in ["policy", "expert"]:
                 if pi_i == "policy" and args.no_policy:
