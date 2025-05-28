@@ -1,9 +1,9 @@
-# Code DAgger
+# Learning to Code with Compute-Scaled Experts
 
 ## Installation
 
 ```
-cd code_dagger/
+cd code_cse/
 pip install -e .
 ```
 
@@ -16,7 +16,7 @@ Original training data
     - instruction, response
 
 ```
-python -m code_dagger.data \
+python -m code_cse.data \
     --data_path bigcode/self-oss-instruct-sc2-exec-filter-50k \
     --prompt_data_field instruction \
     --code_data_field response \
@@ -36,10 +36,10 @@ The policy we want to improve is one finetuned to generate code edits.
 Note: should change mbpp as base task since it's ideally what we want to evaluate performance on.
 
 ```
-python -m code_dagger.main \
+python -m code_cse.main \
     --base_expert_model ${EXPERT_MODEL} \
     --base_policy_model ${POLICY_MODEL} \
     --base_task mbpp \
     --output_trajectory_path output/ \
-    --task_path code_dagger/tasks/
+    --task_path code_cse/tasks/
 ```
