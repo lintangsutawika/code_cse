@@ -28,7 +28,8 @@ python -m code_cse.data \
     --as_states
 ```
 
-## Initial Policy
+## Training
+# Initial Policy
 
 The policy we want to improve is one finetuned to generate code edits.
 We can do this by finetuning an initial base policy with OpenRLHF.
@@ -66,7 +67,7 @@ torchrun --nproc_per_node 8 --master_port 8291 \
         --use_liger_kernel
 ```
 
-## Training
+# Training
 
 Note: should change mbpp as base task since it's ideally what we want to evaluate performance on.
 
